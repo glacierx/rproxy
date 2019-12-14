@@ -1,0 +1,18 @@
+﻿[package]
+name = "rproxy"
+version = "0.1.0"
+authors = ["Rong Xian <rong.xian@gmail.com>"]
+description = "Platform independent asynchronous udp/tcp proxy"
+homepage = "https://github.com/glacierx/rproxy"
+repository = "https://github.com/glacierx/rproxy"
+readme = "README.md"
+keywords = ["proxy", "tcp", "udp", "async"]
+categories = ["command-line-utilities", "network-programming"]
+license = "MIT"
+edition="2018"
+
+[dependencies]
+getopts = "0.2"
+rand = "0.3"
+corona= "0.4.2"
+tokio= { version = "0.2.4", features = ["full"] }

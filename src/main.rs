@@ -1,32 +1,31 @@
-﻿#![recursion_limit="256"]
+﻿#![recursion_limit="512"]
 #![warn(rust_2018_idioms)]
 
-// use futures_util::stream::stream::StreamExt;
-// use std::future::Future;
 use std::time::SystemTime;
 use std::io::ErrorKind::Other;
 use std::net::ToSocketAddrs;
-// use tokio::task::JoinHandle;
-// use tokio::net::udp::SendHalf;
 use futures::future::try_join;
 use getopts::Options;
-// use std::pin::Pin;
-// use std::sync::Arc;
 use std::collections::HashMap;
 use std::{env, io};
-// use std::net::UdpSocket;
 use std::net::SocketAddr;
 use log::*;
+use chrono::{Local};
 
 #[cfg(tcp)]
 #[cfg(udp)]
 
 use tokio::net::TcpListener;
 use tokio::net::UdpSocket;
+use tokio::time;
 use futures::{
-    // channel::{
-    //     mpsc
-    // },
+    channel::{
+        mpsc::{
+            UnboundedReceiver,
+            UnboundedSender,
+            unbounded
+        }
+    },
     stream::{
         StreamExt
     },
@@ -36,12 +35,8 @@ use futures::{
     select,
 };
 
-// use tokio::net::
 
 fn usage(_program: &str, opts: &Options){
-    // let program_path = std::path::PathBuf::from(program);
-    // let program_name = program_path.file_stem().unwrap().to_str().unwrap();
-    // println!("Usage: {} [-b BIND_ADDR] -l LOCAL_PORT -h REMOTE_ADDR -r REMOTE_PORT", program_name);
     println!("rproxy: {}", opts.usage("A platform neutral asynchronous UDP/TCP proxy"));
 }
 
@@ -51,10 +46,10 @@ enum MessageType{
     Terminate,
 }
 
-type Tx=futures::channel::mpsc::UnboundedSender<(SocketAddr, Vec<u8>, MessageType)>;
-type Rx=futures::channel::mpsc::UnboundedReceiver<(SocketAddr, Vec<u8>, MessageType)>;
+type Tx=UnboundedSender<(SocketAddr, Vec<u8>, MessageType)>;
+type Rx=UnboundedReceiver<(SocketAddr, Vec<u8>, MessageType)>;
 
-struct UDPPeerPair{
+struct UDPPeerPair {
     client: SocketAddr,
     remote: SocketAddr,
     send: Tx,
@@ -72,7 +67,7 @@ impl UDPPeerPair {
         // let remote_addr: SocketAddr = SocketAddr::from(self.remote);
         let remote_addr = self.remote;
         // let t = MessageType::Terminate;
-        let (ctrl_tx, mut ctrl_rx) = futures::channel::mpsc::unbounded::<MessageType>();
+        let (ctrl_tx, mut ctrl_rx) = unbounded::<MessageType>();
 
         let client_to_remote_proc = async move {
             // let mut buf: Vec<u8> = vec![0;1024*10];
@@ -81,6 +76,7 @@ impl UDPPeerPair {
                 if let Some((_peer, buf, msg_type)) = self.recv.next().await {
                     match msg_type {
                         MessageType::Terminate => {
+                            debug!("{}:{} sends TERMINATE signal", client_peer.ip(), client_peer.port());
                             ctrl_tx.unbounded_send(MessageType::Terminate).unwrap();
                             break;
                         },
@@ -120,6 +116,7 @@ impl UDPPeerPair {
                         if let Some(msg_type) = y{
                             match msg_type{
                                 MessageType::Terminate => {
+                                    debug!("{}:{} recvs TERMINATE signal", client_peer.ip(), client_peer.port());
                                     break;
                                 },
                                 _ =>{
@@ -133,21 +130,22 @@ impl UDPPeerPair {
             Ok(())
         };
         try_join(client_to_remote_proc, remote_to_client_proc).await.unwrap();
+        debug!("{}:{} exits", client_peer.ip(), client_peer.port());
         Ok(())        
     }
 
 }
-struct UDPProxy {
-    addr: String,
-    remote: String,
+struct UDPProxy<'a> {
+    addr: &'a String,
+    remote: &'a String,
 }
 
 
-impl UDPProxy {
+impl<'a> UDPProxy<'a> {
 
     async fn run(self) -> Result<(), io::Error> {
         let socket = UdpSocket::bind(&self.addr).await.unwrap();
-        println!("Listening on {}", socket.local_addr().unwrap());
+        info!("Listening on {}", socket.local_addr().unwrap());
         let server: Vec<_> = self.remote
                             .to_socket_addrs()
                             .expect("Unable to resolve domain")
@@ -155,7 +153,7 @@ impl UDPProxy {
 
         let _remote = server[0];
         let (mut socket_recv, mut socket_send) = socket.split();
-        let (tx, mut rx) = futures::channel::mpsc::unbounded::<(SocketAddr, Vec<u8>,  MessageType)>();
+        let (tx, mut rx) = unbounded::<(SocketAddr, Vec<u8>,  MessageType)>();
         let remote_to_client_proc = async move {
             loop{
                 if let Some((peer, buf, _msg_type)) = rx.next().await {
@@ -180,38 +178,47 @@ impl UDPProxy {
             let mut buf: Vec<u8> = vec![0;1024*256];
             let empty: Vec<u8> = vec![0;0];
             let mut client_tunnels:HashMap<SocketAddr, (Tx, SystemTime)> = HashMap::new();
+            let mut time_out1 = time::interval(tokio::time::Duration::from_secs(5)).fuse();
             loop{
 
-                let data = Some(socket_recv.recv_from(&mut buf).await.unwrap()); 
-                if let Some((size, peer)) = data {
-                    // let _addr = format!("{}:{}", peer.ip(), peer.port());
-                    match client_tunnels.get(&peer) {
-                        Some((_tx, _active_time)) => {
-                            _tx.unbounded_send((peer, buf.clone(), MessageType::Data)).unwrap();
-                        },
-                        _ => {
-                            let (mut _s,_r) = futures::channel::mpsc::unbounded::<(SocketAddr, Vec<u8>,  MessageType)>();
-                            _s.unbounded_send((peer, buf.clone(), MessageType::Data)).unwrap();
-                            client_tunnels.insert(peer, (_s, SystemTime::now()));
-                            let c = UDPPeerPair {
-                                client : peer,
-                                remote: _remote,
-                                send: tx.clone(),
-                                recv: _r
-                            };
-                            tokio::spawn(c.run());
+                select! {
+                    data = socket_recv.recv_from(&mut buf).fuse() => {
+                        if let Ok((size, peer)) = data {
+                            // let _addr = format!("{}:{}", peer.ip(), peer.port());
+                            match client_tunnels.get(&peer) {
+                                Some((_tx, _active_time)) => {
+                                    _tx.unbounded_send((peer, buf.clone(), MessageType::Data)).unwrap();
+                                },
+                                _ => {
+                                    info!("New client {}:{} is added", peer.ip(), peer.port());
+                                    let (mut _s,_r) = unbounded::<(SocketAddr, Vec<u8>,  MessageType)>();
+                                    _s.unbounded_send((peer, buf.clone(), MessageType::Data)).unwrap();
+                                    client_tunnels.insert(peer, (_s, SystemTime::now()));
+                                    let c = UDPPeerPair {
+                                        client : peer,
+                                        remote: _remote,
+                                        send: tx.clone(),
+                                        recv: _r
+                                    };
+                                    tokio::spawn(c.run());
+                                }
+                            }
+                            let tx = &client_tunnels.get(&peer).unwrap().0;
+                            tx.unbounded_send((peer, Vec::from(&buf[0..size]), MessageType::Data)).unwrap();
+                        } else {
+                            break;
+                        }
+                    },
+                    _ = time_out1.next() =>{
+                        debug!("Tick");
+                        for (k, v) in client_tunnels.iter(){
+                            let sec = v.1.elapsed().unwrap().as_secs();
+                            if sec > 10{
+                                info!("Client {}:{} is timeout({}s)", k.ip(), k.port(), sec);
+                                v.0.unbounded_send((k.clone(), empty.clone(), MessageType::Terminate)).unwrap();
+                            }
                         }
                     }
-                    let tx = &client_tunnels.get(&peer).unwrap().0;
-                    tx.unbounded_send((peer, Vec::from(&buf[0..size]), MessageType::Data)).unwrap();
-                    let now = SystemTime::now();
-                    for (_, v) in client_tunnels.iter(){
-                        if now - (std::time::Duration::from_secs(100)) > v.1{
-                            v.0.unbounded_send((peer, empty.clone(), MessageType::Terminate)).unwrap();
-                        }
-                    }
-                } else {
-                    break;
                 }
             }
             Ok(())
@@ -222,17 +229,12 @@ impl UDPProxy {
     }
 }
 
-async fn udp_proxy(bind_address:String, 
-    local_port:u16, 
-    remote_address:String, 
-    remote_port:u16) -> Result<(), io::Error>
+async fn udp_proxy(local: &String, 
+    remote:&String) -> Result<(), io::Error>
 {
-    let addr = format!("{}:{}", bind_address, local_port);
-    // opts.
-    let remote = format!("{}:{}", remote_address, remote_port);
     let server = UDPProxy {
-        addr,
-        remote
+        addr: &local,
+        remote: &remote
     };
     return server.run().await;
 }
@@ -241,13 +243,13 @@ static MY_LOGGER: MyLogger = MyLogger;
 struct MyLogger;
 
 impl log::Log for MyLogger {
-    fn enabled(&self, metadata: &Metadata<'_>) -> bool {
-        metadata.level() <= Level::Info
+    fn enabled(&self, _metadata: &Metadata<'_>) -> bool {
+        true
     }
 
     fn log(&self, record: &Record<'_>) {
         if self.enabled(record.metadata()) {
-            println!("{} - {}", record.level(), record.args());
+            println!("[{}][{}] - {}", record.level(), Local::now(), record.args());
         }
     }
     fn flush(&self) {}
@@ -258,7 +260,7 @@ impl log::Log for MyLogger {
 #[tokio::main]
 async fn main(){
     log::set_logger(&MY_LOGGER).unwrap();
-    log::set_max_level(LevelFilter::Info);    
+    log::set_max_level(LevelFilter::Info);
     // info!("Hello world");
     let args: Vec<String> = env::args().collect();
     let program = args[0].clone();
@@ -283,9 +285,12 @@ async fn main(){
             usage(&program, &opts);
             std::process::exit(-1);
         });
-    let bind_addr = matches.opt_str("b").unwrap();
-    let local_port = matches.opt_str("l").unwrap().parse::<u16>().unwrap();
-    let remote_addr = matches.opt_str("h").unwrap();
-    let remote_port = matches.opt_str("r").unwrap().parse::<u16>().unwrap();
-    udp_proxy(bind_addr, local_port, remote_addr, remote_port).await.unwrap();
+    let local_addr:String = matches.opt_str("b").unwrap();
+    let remote_addr:String = matches.opt_str("r").unwrap();
+    // let mut local = local_addr.split(":").collect::<Vec<&str>>();
+    // let mut remote = remote_addr.split(":").collect::<Vec<&str>>();
+    let protocol = matches.opt_str("p").unwrap().to_uppercase();
+    if protocol == "UDP"{
+        udp_proxy(&local_addr, &remote_addr).await.unwrap();
+    }
 }

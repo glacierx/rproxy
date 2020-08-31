@@ -61,12 +61,9 @@ impl UDPPeerPair {
     async fn run(mut self) -> Result<(), io::Error>{
         let socket = UdpSocket::bind("0.0.0.0:0").await.unwrap();
         let (mut socket_recv, mut socket_send) = socket.split();
-        // let mut recv = self.recv.clone();
         let client_peer = self.client;
         let _tx = self.send.clone();
-        // let remote_addr: SocketAddr = SocketAddr::from(self.remote);
         let remote_addr = self.remote;
-        // let t = MessageType::Terminate;
         let (ctrl_tx, mut ctrl_rx) = unbounded::<MessageType>();
 
         let client_to_remote_proc = async move {
@@ -74,6 +71,7 @@ impl UDPPeerPair {
             loop{
 
                 if let Some((_peer, buf, msg_type)) = self.recv.next().await {
+
                     match msg_type {
                         MessageType::Terminate => {
                             debug!("{}:{} sends TERMINATE signal", client_peer.ip(), client_peer.port());
@@ -82,12 +80,14 @@ impl UDPPeerPair {
                         },
                         _ => {}
                     }
+                    debug!("Forward {} bytes from {}", buf.len(), _peer);
+
                     match socket_send.send_to(&buf[..], &remote_addr).await {
                         Ok(_sz) => {
 
                         },
                         Err(_e) => {
-                            return Err(io::Error::from(Other));
+                            panic!(_e);
                         }
                     }
                 } else {
@@ -102,7 +102,8 @@ impl UDPPeerPair {
                 select!{
                     x = socket_recv.recv_from(&mut buf).fuse() => {
                         if let Ok((_size, _peer)) = x {
-                            match _tx.unbounded_send((client_peer, buf.clone(), MessageType::Data)) {
+                            debug!("Recv {} bytes to {}", _size, client_peer);
+                            match _tx.unbounded_send((client_peer, Vec::from(&buf[.._size]), MessageType::Data)) {
                                 Ok(_sz) => {
         
                                 },
@@ -157,6 +158,7 @@ impl<'a> UDPProxy<'a> {
         let remote_to_client_proc = async move {
             loop{
                 if let Some((peer, buf, _msg_type)) = rx.next().await {
+                    debug!("Forward {} bytes to {}", buf.len(), peer);
                     match socket_send.send_to(&buf[..], &peer).await {
                         Ok(_sz) => {
 
@@ -187,12 +189,12 @@ impl<'a> UDPProxy<'a> {
                             // let _addr = format!("{}:{}", peer.ip(), peer.port());
                             match client_tunnels.get(&peer) {
                                 Some((_tx, _active_time)) => {
-                                    _tx.unbounded_send((peer, buf.clone(), MessageType::Data)).unwrap();
+                                    // _tx.unbounded_send((peer, Vec::from(&buf[..size]), MessageType::Data)).unwrap();
                                 },
                                 _ => {
                                     info!("New client {}:{} is added", peer.ip(), peer.port());
                                     let (mut _s,_r) = unbounded::<(SocketAddr, Vec<u8>,  MessageType)>();
-                                    _s.unbounded_send((peer, buf.clone(), MessageType::Data)).unwrap();
+                                    // _s.unbounded_send((peer, buf.clone(), MessageType::Data)).unwrap();
                                     client_tunnels.insert(peer, (_s, SystemTime::now()));
                                     let c = UDPPeerPair {
                                         client : peer,
@@ -203,21 +205,30 @@ impl<'a> UDPProxy<'a> {
                                     tokio::spawn(c.run());
                                 }
                             }
-                            let tx = &client_tunnels.get(&peer).unwrap().0;
-                            tx.unbounded_send((peer, Vec::from(&buf[0..size]), MessageType::Data)).unwrap();
+                            let (tx, tm) = &mut client_tunnels.get_mut(&peer).unwrap();
+                            debug!("Recv {} bytes from {}", size, peer);
+                            tx.unbounded_send((peer, Vec::from(&buf[..size]), MessageType::Data)).unwrap();
+                            *tm = SystemTime::now();
                         } else {
                             break;
                         }
                     },
                     _ = time_out1.next() =>{
                         debug!("Tick");
-                        for (k, v) in client_tunnels.iter(){
+                        let mut tbd: Vec<SocketAddr> = Vec::new();
+                        for (k, v) in (&mut client_tunnels).iter(){
                             let sec = v.1.elapsed().unwrap().as_secs();
                             if sec > 10{
                                 info!("Client {}:{} is timeout({}s)", k.ip(), k.port(), sec);
                                 v.0.unbounded_send((k.clone(), empty.clone(), MessageType::Terminate)).unwrap();
+                                tbd.push(k.to_owned());
                             }
                         }
+
+                        for k in tbd{
+                            client_tunnels.remove(&k);
+                        }
+
                     }
                 }
             }
@@ -280,17 +291,19 @@ async fn main(){
                 "TCP|UDP");
     opts.optflag("d", "debug", "Enable debug mode");
 
-    let matches = opts.parse(&args[1..])
-        .unwrap_or_else(|_| {
-            usage(&program, &opts);
-            std::process::exit(-1);
-        });
-    let local_addr:String = matches.opt_str("b").unwrap();
-    let remote_addr:String = matches.opt_str("r").unwrap();
-    // let mut local = local_addr.split(":").collect::<Vec<&str>>();
-    // let mut remote = remote_addr.split(":").collect::<Vec<&str>>();
-    let protocol = matches.opt_str("p").unwrap().to_uppercase();
-    if protocol == "UDP"{
-        udp_proxy(&local_addr, &remote_addr).await.unwrap();
+    if let Ok(matches) = opts.parse(&args[1..]) {
+        let local_addr:String = matches.opt_str("b").unwrap();
+        let remote_addr:String = matches.opt_str("r").unwrap();
+        // let mut local = local_addr.split(":").collect::<Vec<&str>>();
+        // let mut remote = remote_addr.split(":").collect::<Vec<&str>>();
+        let protocol = matches.opt_str("p").unwrap().to_uppercase();
+        if matches.opt_present("d") {
+            log::set_max_level(LevelFilter::Debug);
+        }
+        if protocol == "UDP"{
+            udp_proxy(&local_addr, &remote_addr).await.unwrap();
+        }
+    } else {
+        usage(&program, &opts);
     }
 }

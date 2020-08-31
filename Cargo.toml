@@ -2,11 +2,11 @@
 name = "rproxy"
 version = "0.1.0"
 authors = ["Rong Xian <rong.xian@gmail.com>"]
-description = "Platform independent asynchronous udp/tcp proxy"
+description = "Platform independent asynchronous UDP/TCP proxy"
 homepage = "https://github.com/glacierx/rproxy"
 repository = "https://github.com/glacierx/rproxy"
 readme = "README.md"
-keywords = ["proxy", "tcp", "udp", "async"]
+keywords = ["proxy", "TCP", "UDP", "async", "traverse", "openvpn", "GFW", "DNS"]
 categories = ["command-line-utilities", "network-programming"]
 license = "MIT"
 edition="2018"

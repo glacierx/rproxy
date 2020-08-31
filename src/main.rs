@@ -1,6 +1,9 @@
 ﻿#![recursion_limit="512"]
 #![warn(rust_2018_idioms)]
 
+use tokio::io::AsyncWriteExt;
+use tokio::net::TcpStream;
+use tokio::net::TcpListener;
 use std::time::SystemTime;
 use std::io::ErrorKind::Other;
 use std::net::ToSocketAddrs;
@@ -15,7 +18,7 @@ use chrono::{Local};
 #[cfg(tcp)]
 #[cfg(udp)]
 
-use tokio::net::TcpListener;
+use tokio::io::AsyncWriteExt;
 use tokio::net::UdpSocket;
 use tokio::time;
 use futures::{
@@ -249,6 +252,89 @@ async fn udp_proxy(local: &String,
     };
     return server.run().await;
 }
+
+struct TCPPeerPair {
+    client: TcpStream,
+    remote: String,
+}
+
+impl TCPPeerPair {
+    async fn run(mut self) -> Result<(), io::Error>{
+        let mut outbound = TcpStream::connect(self.remote).await?;
+
+        let (mut ri, mut wi) = self.client.split();
+        let (mut ro, mut wo) = outbound.split();
+    
+        let client_to_server = async {
+            tokio::io::copy(&mut ri, &mut wo).await?;
+            wo.shutdown().await
+        };
+    
+        let server_to_client = async {
+            tokio::io::copy(&mut ro, &mut wi).await?;
+            wi.shutdown().await
+        };
+    
+        try_join(client_to_server, server_to_client).await?;
+    
+        Ok(())
+    }
+}
+
+// async fn transfer(mut inbound: TcpStream, proxy_addr: String) -> Result<(), Box<dyn std::error::Error>> {
+//     let mut outbound = TcpStream::connect(proxy_addr).await?;
+
+//     let (mut ri, mut wi) = inbound.split();
+//     let (mut ro, mut wo) = outbound.split();
+
+//     let client_to_server = async {
+//         tokio::io::copy(&mut ri, &mut wo).await?;
+//         wo.shutdown().await
+//     };
+
+//     let server_to_client = async {
+//         tokio::io::copy(&mut ro, &mut wi).await?;
+//         wi.shutdown().await
+//     };
+
+//     try_join(client_to_server, server_to_client).await?;
+
+//     Ok(())
+// }
+
+struct TCPProxy<'a> {
+    addr: &'a String,
+    remote: &'a String,
+}
+
+
+impl<'a> TCPProxy<'a> {
+    async fn run(self) -> Result<(), io::Error> {
+        let mut listener = TcpListener::bind(self.addr).await?;
+
+        while let Ok((inbound, _)) = listener.accept().await {
+            // let transfer = Self::transfer(inbound, self.remote.clone());
+            // tokio::spawn(transfer);
+            let client = TCPPeerPair{
+                client: inbound,
+                remote: self.remote.clone()
+            };
+            tokio::spawn(client.run());
+        }        
+        Ok(())
+    }
+}
+
+async fn tcp_proxy(local: &String, 
+    remote:&String) -> Result<(), io::Error>
+{
+    let server = TCPProxy {
+        addr: &local,
+        remote: &remote
+    };
+    return server.run().await;
+}
+
 static MY_LOGGER: MyLogger = MyLogger;
 
 struct MyLogger;
@@ -301,7 +387,13 @@ async fn main(){
             log::set_max_level(LevelFilter::Debug);
         }
         if protocol == "UDP"{
+            info!("Start service in UDP mode.");
             udp_proxy(&local_addr, &remote_addr).await.unwrap();
+        } else if protocol == "TCP" {
+            info!("Start service in TCP mode.");
+            tcp_proxy(&local_addr, &remote_addr).await.unwrap();
+        } else {
+            usage(&program, &opts);
         }
     } else {
         usage(&program, &opts);

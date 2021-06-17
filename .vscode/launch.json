@@ -19,7 +19,7 @@
                     "kind": "bin"
                 }
             },
-            "args": ["-r", "proxy-us.raisethink.com:11194", "-b", "0.0.0.0:11135", "-p", "UDP", "-d"],
+            "args": ["-r", "slsj.raisethink.com:11194", "-b", "0.0.0.0:11194", "-p", "UDP", "-d"],
             "cwd": "${workspaceFolder}"
         },{
             "type": "lldb",

@@ -1,6 +1,7 @@
 ﻿#![recursion_limit="512"]
 #![warn(rust_2018_idioms)]
 
+use std::sync::Arc;
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
 use tokio::net::TcpListener;
@@ -32,10 +33,10 @@ use futures::{
     stream::{
         StreamExt
     },
-    future::FutureExt, // for `.fuse()`
-    // future::Future,
-    // pin_mut,
-    select,
+    // future::FutureExt, // for `.fuse()`
+    // // future::Future,
+    // // pin_mut,
+    // select,
 };
 
 
@@ -62,8 +63,10 @@ struct UDPPeerPair {
 impl UDPPeerPair {
 
     async fn run(mut self) -> Result<(), io::Error>{
-        let socket = UdpSocket::bind("0.0.0.0:0").await.unwrap();
-        let (mut socket_recv, mut socket_send) = socket.split();
+        let socket = Arc::new(UdpSocket::bind("0.0.0.0:0").await.unwrap());
+        // let (mut socket_recv, mut socket_send) = socket.split();
+        let socket_recv = socket.clone();
+        let socket_send = socket.clone();
         let client_peer = self.client;
         let _tx = self.send.clone();
         let remote_addr = self.remote;
@@ -102,8 +105,8 @@ impl UDPPeerPair {
         let remote_to_client_proc = async move {
             let mut buf: Vec<u8> = vec![0;1024*10];
             loop{
-                select!{
-                    x = socket_recv.recv_from(&mut buf).fuse() => {
+                tokio::select! {
+                    x = socket_recv.recv_from(&mut buf) => {
                         if let Ok((_size, _peer)) = x {
                             debug!("Recv {} bytes to {}", _size, client_peer);
                             match _tx.unbounded_send((client_peer, Vec::from(&buf[.._size]), MessageType::Data)) {
@@ -148,7 +151,7 @@ struct UDPProxy<'a> {
 impl<'a> UDPProxy<'a> {
 
     async fn run(self) -> Result<(), io::Error> {
-        let socket = UdpSocket::bind(&self.addr).await.unwrap();
+        let socket = Arc::new(UdpSocket::bind(&self.addr).await.unwrap());
         info!("Listening on {}", socket.local_addr().unwrap());
         let server: Vec<_> = self.remote
                             .to_socket_addrs()
@@ -156,7 +159,9 @@ impl<'a> UDPProxy<'a> {
                             .collect();
 
         let _remote = server[0];
-        let (mut socket_recv, mut socket_send) = socket.split();
+        // let (mut socket_recv, mut socket_send) = socket.split();
+        let socket_recv = socket.clone();
+        let socket_send = socket.clone();
         let (tx, mut rx) = unbounded::<(SocketAddr, Vec<u8>,  MessageType)>();
         let remote_to_client_proc = async move {
             loop{
@@ -183,11 +188,11 @@ impl<'a> UDPProxy<'a> {
             let mut buf: Vec<u8> = vec![0;1024*256];
             let empty: Vec<u8> = vec![0;0];
             let mut client_tunnels:HashMap<SocketAddr, (Tx, SystemTime)> = HashMap::new();
-            let mut time_out1 = time::interval(tokio::time::Duration::from_secs(5)).fuse();
+            let mut time_out1 = time::interval(tokio::time::Duration::from_secs(5));
             loop{
 
-                select! {
-                    data = socket_recv.recv_from(&mut buf).fuse() => {
+                tokio::select! {
+                    data = socket_recv.recv_from(&mut buf) => {
                         if let Ok((size, peer)) = data {
                             // let _addr = format!("{}:{}", peer.ip(), peer.port());
                             match client_tunnels.get(&peer) {
@@ -216,7 +221,7 @@ impl<'a> UDPProxy<'a> {
                             break;
                         }
                     },
-                    _ = time_out1.next() =>{
+                    _ = time_out1.tick() =>{
                         debug!("Tick");
                         let mut tbd: Vec<SocketAddr> = Vec::new();
                         for (k, v) in (&mut client_tunnels).iter(){
@@ -310,7 +315,7 @@ struct TCPProxy<'a> {
 
 impl<'a> TCPProxy<'a> {
     async fn run(self) -> Result<(), io::Error> {
-        let mut listener = TcpListener::bind(self.addr).await?;
+        let listener = TcpListener::bind(self.addr).await?;
 
         while let Ok((inbound, _)) = listener.accept().await {
             // let transfer = Self::transfer(inbound, self.remote.clone());

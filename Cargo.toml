@@ -1,21 +1,26 @@
 ﻿[package]
 name = "rproxy"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Rong Xian <rong.xian@gmail.com>"]
 description = "Platform independent asynchronous UDP/TCP proxy"
 homepage = "https://github.com/glacierx/rproxy"
 repository = "https://github.com/glacierx/rproxy"
 readme = "README.md"
-keywords = ["proxy", "TCP", "UDP", "async", "traverse", "openvpn", "GFW", "DNS"]
+keywords = ["proxy", "TCP", "UDP", "async","openvpn"]
 categories = ["command-line-utilities", "network-programming"]
 license = "MIT"
 edition="2018"
+exclude = [
+    ".gitignore",
+    "Cargo.toml.orig",
+    "Cargo.lock",
+]
 
 [dependencies]
 getopts = "0.2"
-rand = "0.7.3"
-tokio= { version = "0.2.22", features = ["full"] }
+rand = "0.8.4"
+tokio= { version = "1.7.0", features = ["full"] }
 futures= "0.3.5"
-crossbeam="0.7.3"
+crossbeam="0.8.1"
 log = { version = "0.4", features = ["std", "serde"] }
 chrono={ version = "0.4"}

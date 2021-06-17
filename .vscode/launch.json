@@ -1,0 +1,62 @@
+{
+    // 使用 IntelliSense 了解相关属性。 
+    // 悬停以查看现有属性的描述。
+    // 欲了解更多信息，请访问: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug executable 'rproxy'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=rproxy",
+                    "--package=rproxy"
+                ],
+                "filter": {
+                    "name": "rproxy",
+                    "kind": "bin"
+                }
+            },
+            "args": ["-r", "proxy-us.raisethink.com:11194", "-b", "0.0.0.0:11135", "-p", "UDP", "-d"],
+            "cwd": "${workspaceFolder}"
+        },{
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug TCP executable 'rproxy'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=rproxy",
+                    "--package=rproxy"
+                ],
+                "filter": {
+                    "name": "rproxy",
+                    "kind": "bin"
+                }
+            },
+            "args": ["-r", "10.70.80.5:8001", "-b", "0.0.0.0:8000", "-p", "TCP", "-d"],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in executable 'rproxy'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--bin=rproxy",
+                    "--package=rproxy"
+                ],
+                "filter": {
+                    "name": "rproxy",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        }
+    ]
+}

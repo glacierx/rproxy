@@ -221,7 +221,7 @@ impl<'a> UDPProxy<'a> {
                         let mut tbd: Vec<SocketAddr> = Vec::new();
                         for (k, v) in (&mut client_tunnels).iter(){
                             let sec = v.1.elapsed().unwrap().as_secs();
-                            if sec > 10{
+                            if sec > 120{
                                 info!("Client {}:{} is timeout({}s)", k.ip(), k.port(), sec);
                                 v.0.unbounded_send((k.clone(), empty.clone(), MessageType::Terminate)).unwrap();
                                 tbd.push(k.to_owned());

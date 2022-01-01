@@ -1,6 +1,6 @@
-﻿[package]
+[package]
 name = "rproxy"
-version = "0.1.1"
+version = "0.1.2"
 authors = ["Rong Xian <rong.xian@gmail.com>"]
 description = "Platform independent asynchronous UDP/TCP proxy"
 homepage = "https://github.com/glacierx/rproxy"
@@ -24,3 +24,10 @@ futures= "0.3.5"
 crossbeam="0.8.1"
 log = { version = "0.4", features = ["std", "serde"] }
 chrono={ version = "0.4"}
+cargo-strip= {version = "0.2.3"}
+
+[profile.release]
+#strip = true  # Automatically strip symbols from the binary.
+opt-level = 3
+lto = true
+codegen-units = 1

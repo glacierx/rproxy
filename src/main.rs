@@ -93,7 +93,7 @@ impl UDPPeerPair {
 
                         },
                         Err(_e) => {
-                            panic!(_e);
+                            panic!("{}", _e);
                         }
                     }
                 } else {

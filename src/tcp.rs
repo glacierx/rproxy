@@ -2,6 +2,7 @@
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
 use tokio::net::TcpListener;
+use log::*;
 
 struct TCPPeerPair {
     client: TcpStream,
@@ -38,17 +39,31 @@ struct TCPProxy<'a> {
 
 impl<'a> TCPProxy<'a> {
     async fn run(self) -> Result<(), std::io::Error> {
-        let listener = TcpListener::bind(self.addr).await?;
+        match TcpListener::bind(self.addr).await {
+            Ok(listener) => {
+                loop{
 
-        while let Ok((inbound, _)) = listener.accept().await {
-            // let transfer = Self::transfer(inbound, self.remote.clone());
-            // tokio::spawn(transfer);
-            let client = TCPPeerPair{
-                client: inbound,
-                remote: self.remote.clone()
-            };
-            tokio::spawn(client.run());
-        }        
+                    match listener.accept().await {
+                        Ok((inbound, _)) => {
+                            // let transfer = Self::transfer(inbound, self.remote.clone());
+                            // tokio::spawn(transfer);
+                            let client = TCPPeerPair{
+                                client: inbound,
+                                remote: self.remote.clone()
+                            };
+                            tokio::spawn(client.run());
+                        },
+                        Err(e1) => {
+                            error!("Failed to accept new connection from {}, err={:?}", self.addr, e1);
+                        }
+                    }       
+                }
+            },
+            Err(e) => {
+                error!("Failed to bind interface {}, err={:?}", self.addr, e);
+            }
+        }
+
         Ok(())
     }
 }
@@ -60,5 +75,6 @@ pub async fn tcp_proxy(local: &String,
         addr: &local,
         remote: &remote
     };
+    info!("Start service in TCP mode {}->{}", server.addr, server.remote);
     return server.run().await;
 }

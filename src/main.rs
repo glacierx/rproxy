@@ -4,6 +4,7 @@
 #[cfg(udp)]
 
 use std::sync::Arc;
+use chrono::Local;
 use std::path::PathBuf;
 use std::path::Path;
 use log::*;
@@ -18,16 +19,16 @@ use serde::{Deserialize, Serialize};
 #[argh(description = "rproxy is a platform independent UDP TCP high performance async proxy")]
 struct Options {
     /// remote service endpoint (UDP & TCP)
-    #[argh(option, short='r')]
+    #[argh(option, short='r', default="\"\".to_string()")]
     remote: String,
     /// local endpoint to be binded by rproxy
-    #[argh(option, short='b')]
+    #[argh(option, short='b', default="\"\".to_string()")]
     bind: String,
     /// protocol of the remote service(UDP|TCP)
     #[argh(option, short='p', default="\"UDP\".to_string()")]
     protocol: String,
     /// set logger level to debug or not
-    #[argh(option, short='d', default="true")]
+    #[argh(switch, short='d')]
     debug: bool,
 
     /// logger settings rotating etc...
@@ -46,7 +47,22 @@ struct Proxy {
     protocol: String
 }
 
+static MY_LOGGER: MyLogger = MyLogger;
 
+struct MyLogger;
+
+impl log::Log for MyLogger {
+    fn enabled(&self, _metadata: &Metadata<'_>) -> bool {
+        true
+    }
+
+    fn log(&self, record: &Record<'_>) {
+        if self.enabled(record.metadata()) {
+            println!("[{}][{}] - {}", record.level(), Local::now(), record.args());
+        }
+    }
+    fn flush(&self) {}
+}
 
 #[tokio::main]
 async fn main(){
@@ -56,15 +72,20 @@ async fn main(){
         log4rs::init_file(&options.logger_settings, 
             Default::default()).unwrap();
         debug!("NICE");
+    } else {
+        log::set_logger(&MY_LOGGER).unwrap();
+        if options.debug {
+            log::set_max_level(LevelFilter::Debug);
+        } else {
+            log::set_max_level(LevelFilter::Info);
+        }
     }
 
     match options.config {
         None => {
             if options.protocol == "UDP"{
-                info!("Start service in UDP mode.");
                 udp::udp_proxy(&options.bind, &options.remote).await.unwrap();
             } else if options.protocol == "TCP" {
-                info!("Start service in TCP mode.");
                 tcp::tcp_proxy(&options.bind, &options.remote).await.unwrap();
             }
         },
@@ -84,6 +105,7 @@ async fn main(){
                                     procs.push(tokio::spawn(async move {tcp::tcp_proxy(&bind, &remote).await}))
                                 }
                             }
+                            futures::future::join_all(procs).await;
                         },
                         Err(e) => {
                             error!("Failed to parse configuration json {:?}", e);

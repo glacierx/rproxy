@@ -19,7 +19,8 @@
                     "kind": "bin"
                 }
             },
-            "args": ["-r", "slsj.raisethink.com:11194", "-b", "0.0.0.0:11194", "-p", "UDP", "-d"],
+            // "args": ["-r", "slsj.raisethink.com:11194", "-b", "0.0.0.0:11194", "-p", "UDP", "-d"],
+            "args": ["-c", "${workspaceFolder}/configs/sample.json"],
             "cwd": "${workspaceFolder}"
         },{
             "type": "lldb",

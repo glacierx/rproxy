@@ -231,5 +231,6 @@ pub async fn udp_proxy(local: &String,
         addr: &local,
         remote: &remote
     };
+    info!("Start service in UDP mode {}->{}", server.addr, server.remote);
     return server.run().await;
 }

@@ -12,6 +12,7 @@ use argh::FromArgs;
 use log4rs;
 mod tcp;
 mod udp;
+mod dns;
 use serde::{Deserialize, Serialize};
 
 #[allow(dead_code)]

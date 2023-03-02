@@ -1,7 +1,7 @@
 [
     {
-        "bind": "127.0.0.1:7777",
-        "remote": "proxy-us.raisethink.com:8001",
+        "bind": "127.0.0.1:22226",
+        "remote": "slsj.raisethink.com:40000",
         "protocol":"TCP"
     }
 ]

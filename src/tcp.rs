@@ -1,13 +1,11 @@
-﻿use std::collections::HashSet;
-use std::io::Error;
-
-use futures::future::try_join;
-use tokio::io::AsyncWriteExt;
+﻿use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
 use tokio::net::TcpListener;
-use tokio::net::lookup_host;
 use log::*;
 use tokio::time;
+
+use crate::dns::DNSResolve;
+use futures::future::try_join;
 
 struct TCPPeerPair {
     client: TcpStream,
@@ -35,50 +33,26 @@ impl TCPPeerPair {
         Ok(())
     }
 }
-
 struct TCPProxy<'a> {
     addr: &'a String,
     remote: &'a String,
     dns: Vec<String>
 }
 
+impl<'a> DNSResolve<'a> for TCPProxy<'a> {
+    fn remote(&self) -> &String{
+        self.remote
+    }
+    fn dns(&self) -> &Vec<String>{
+        &self.dns
+    }
+    fn reset_dns(&mut self,d: &Vec<String>) -> usize {
+        self.dns = d.to_vec();
+        self.dns.len()
+    }
 
+}
 impl<'a> TCPProxy<'a> {
-    fn domain(&self) -> String {
-        let mut s = self.remote.split(":");
-        s.next().unwrap().to_string()
-    }
-    fn port(&self) -> Option<u16> {
-        let s: Vec<&str> = self.remote.split(":").collect();
-        if s.len() > 1{
-            let p = s.last().unwrap();
-            Some(p.parse::<u16>().unwrap())
-        }else {
-            None
-        }
-    }
-    async fn resolve(& mut self) -> Result<usize, Error> { 
-        let socka = lookup_host(self.remote).await;
-        match socka {
-            Ok(sk) => {
-                let mut last = HashSet::new();
-                last.extend(self.dns.clone());
-                self.dns.clear();
-                for addr in sk{
-                    self.dns.push(addr.to_string());
-                    let d = self.dns.last().unwrap();
-                    if !last.contains(d){
-                        info!("Resolve {} -> {}", self.remote, d);
-                    }
-                }
-            },
-            Err(e) => {
-                warn!("{:?}", e);
-                self.dns = vec![self.domain()];
-            }
-        }
-        Ok(self.dns.len())
-    }
 
     async fn run(& mut self) -> Result<(), std::io::Error> {
         self.resolve().await.unwrap();

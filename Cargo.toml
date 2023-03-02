@@ -19,16 +19,18 @@ exclude = [
 [dependencies]
 getopts = "0.2"
 rand = "0.8.4"
+pin-project-internal = "1.0.12"
+async-trait = "0.1.64"
 tokio= { version = "1.25.0", features = ["full"] }
 log4rs = {version = "1.1.1"}
-futures= "0.3.5"
+futures= "0.3.26"
 crossbeam="0.8.1"
 log = { version = "0.4", features = ["std", "serde"] }
 chrono={ version = "0.4"}
 cargo-strip= {version = "0.2.3"}
-serde={ version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-serde_repr = "0.1"
+serde={ version = "1.0.152", features = ["derive"] }
+serde_json = "1.0.93"
+serde_repr = "0.1.10"
 argh = "0.1.7"
 
 [profile.release]

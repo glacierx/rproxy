@@ -19,7 +19,7 @@ exclude = [
 [dependencies]
 getopts = "0.2"
 rand = "0.8.4"
-tokio= { version = "1.14.0", features = ["full"] }
+tokio= { version = "1.25.0", features = ["full"] }
 log4rs = {version = "1.1.1"}
 futures= "0.3.5"
 crossbeam="0.8.1"

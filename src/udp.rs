@@ -64,7 +64,7 @@ impl UDPPeerPair {
                         },
                         _ => {}
                     }
-                    debug!("Forward {} bytes from {}", buf.len(), _peer);
+                    // debug!("Forward {} bytes from {}", buf.len(), _peer);
 
                     match socket_send.send_to(&buf[..], &remote_addr).await {
                         Ok(_sz) => {
@@ -193,32 +193,36 @@ impl<'a> UDPProxy<'a> {
 
                 tokio::select! {
                     data = socket_recv.recv_from(&mut buf) => {
-                        if let Ok((size, peer)) = data {
-                            // let _addr = format!("{}:{}", peer.ip(), peer.port());
-                            match self.client_tunnels.get(&peer) {
-                                Some((_tx, _active_time)) => {
-                                    // _tx.unbounded_send((peer, Vec::from(&buf[..size]), MessageType::Data)).unwrap();
-                                },
-                                _ => {
-                                    info!("New client {}:{} is added", peer.ip(), peer.port());
-                                    let (mut _s,_r) = unbounded::<(SocketAddr, Vec<u8>,  MessageType)>();
-                                    // _s.unbounded_send((peer, buf.clone(), MessageType::Data)).unwrap();
-                                    self.client_tunnels.insert(peer, (_s, SystemTime::now()));
-                                    let c = UDPPeerPair {
-                                        client : peer,
-                                        remote: _remote.parse::<SocketAddr>().unwrap(),
-                                        send: tx.clone(),
-                                        recv: _r
-                                    };
-                                    tokio::spawn(c.run());
+                        match data {
+                            Ok((size, peer)) => {
+                                // let _addr = format!("{}:{}", peer.ip(), peer.port());
+                                match self.client_tunnels.get(&peer) {
+                                    Some((_tx, _active_time)) => {
+                                        // _tx.unbounded_send((peer, Vec::from(&buf[..size]), MessageType::Data)).unwrap();
+                                    },
+                                    _ => {
+                                        info!("New client {}:{} is added", peer.ip(), peer.port());
+                                        let (mut _s,_r) = unbounded::<(SocketAddr, Vec<u8>,  MessageType)>();
+                                        // _s.unbounded_send((peer, buf.clone(), MessageType::Data)).unwrap();
+                                        self.client_tunnels.insert(peer, (_s, SystemTime::now()));
+                                        let c = UDPPeerPair {
+                                            client : peer,
+                                            remote: _remote.parse::<SocketAddr>().unwrap(),
+                                            send: tx.clone(),
+                                            recv: _r
+                                        };
+                                        tokio::spawn(c.run());
+                                    }
                                 }
+                                let (tx, tm) = &mut self.client_tunnels.get_mut(&peer).unwrap();
+                                // debug!("Recv {} bytes from {}", size, peer);
+                                tx.unbounded_send((peer, Vec::from(&buf[..size]), MessageType::Data)).unwrap();
+                                *tm = SystemTime::now();
+                            },
+                            Err(e) => {
+                                warn!("recv_from {:?} returned error {}, {:?}", socket_recv, e, e);
+                                break;
                             }
-                            let (tx, tm) = &mut self.client_tunnels.get_mut(&peer).unwrap();
-                            // debug!("Recv {} bytes from {}", size, peer);
-                            tx.unbounded_send((peer, Vec::from(&buf[..size]), MessageType::Data)).unwrap();
-                            *tm = SystemTime::now();
-                        } else {
-                            break;
                         }
                     },
                     _ = dns_timeout.tick() => {

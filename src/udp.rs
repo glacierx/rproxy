@@ -214,7 +214,7 @@ impl<'a> UDPProxy<'a> {
                                 }
                             }
                             let (tx, tm) = &mut self.client_tunnels.get_mut(&peer).unwrap();
-                            debug!("Recv {} bytes from {}", size, peer);
+                            // debug!("Recv {} bytes from {}", size, peer);
                             tx.unbounded_send((peer, Vec::from(&buf[..size]), MessageType::Data)).unwrap();
                             *tm = SystemTime::now();
                         } else {
@@ -234,6 +234,8 @@ impl<'a> UDPProxy<'a> {
                                 info!("Client {}:{} is timeout({}s)", k.ip(), k.port(), sec);
                                 v.0.unbounded_send((k.clone(), empty.clone(), MessageType::Terminate)).unwrap();
                                 tbd.push(k.to_owned());
+                            } else {
+                                debug!("Client {}:{} is good. ({}s)", k.ip(), k.port(), sec);
                             }
                         }
 

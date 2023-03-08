@@ -1,7 +1,7 @@
 [
     {
-        "bind": "127.0.0.1:11135",
-        "remote": "slsj.raisethink.com:11194",
-        "protocol":"UDP"
+        "bind": "127.0.0.1:17778",
+        "remote": "10.99.100.9:8000",
+        "protocol":"TCP"
     }
 ]

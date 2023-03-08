@@ -33,7 +33,7 @@ struct Options {
     debug: bool,
 
     /// logger settings rotating etc...
-    #[argh(option, short = 'l', default = "\"fixtures/logger.yaml\".to_string()")]
+    #[argh(option, short = 'l', default = "\"rproxy.logger.yaml\".to_string()")]
     logger_settings: String,
 
     /// configuration for multiple proxy instances

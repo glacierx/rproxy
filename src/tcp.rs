@@ -14,22 +14,25 @@ struct TCPPeerPair {
 
 impl TCPPeerPair {
     async fn run(mut self) -> Result<(), std::io::Error>{
-        let mut outbound = TcpStream::connect(self.remote.clone()).await?;
+        // let mut outbound = TcpStream::connect(self.remote.clone()).await?;
 
-        let (mut ri, mut wi) = self.client.split();
-        let (mut ro, mut wo) = outbound.split();
+        // let (mut ri, mut wi) = self.client.split();
+        // let (mut ro, mut wo) = outbound.split();
     
-        let client_to_server = async {
-            tokio::io::copy(&mut ri, &mut wo).await?;
-            wo.shutdown().await
-        };
+        // let client_to_server = async {
+        //     tokio::io::copy(&mut ri, &mut wo).await?;
+        //     wo.shutdown().await
+        // };
     
-        let server_to_client = async {
-            tokio::io::copy(&mut ro, &mut wi).await?;
-            wi.shutdown().await
-        };
-    
-        try_join(client_to_server, server_to_client).await?;
+        // let server_to_client = async {
+        //     tokio::io::copy(&mut ro, &mut wi).await?;
+        //     wi.shutdown().await
+        // };
+        // try_join(client_to_server, server_to_client).await?;
+        let mut outbound = TcpStream::connect(self.remote.clone()).await?;
+        tokio::io::copy_bidirectional(&mut self.client, &mut outbound).await?;    
+        outbound.shutdown().await?;
+        self.client.shutdown().await?;
         Ok(())
     }
 }

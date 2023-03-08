@@ -1,0 +1,34 @@
+﻿refresh_rate: 30 seconds
+appenders:
+  stdout:
+    kind: console
+    encoder:
+      pattern: "[{d}][{T}][{l}] - {m}{n}"
+  requests:
+    kind: rolling_file
+    path: "rproxy.log"
+    encoder:
+      pattern: "[{d}][{T}][{l}] - {m}{n}"
+    policy:
+      kind: compound
+      trigger:
+        kind: size
+        limit: 100mb
+      roller:
+        kind: fixed_window
+        base: 1
+        count: 5
+        pattern: 'rproxy.log.{}'  
+root:
+  level: debug
+  appenders:
+    - stdout
+    - requests
+loggers:
+  app::backend::db:
+    level: info
+  app::requests:
+    level: info
+    appenders:
+      - requests
+    additive: false

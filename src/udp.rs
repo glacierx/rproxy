@@ -86,7 +86,7 @@ impl UDPPeerPair {
                 tokio::select! {
                     x = socket_recv.recv_from(&mut buf) => {
                         if let Ok((_size, _peer)) = x {
-                            debug!("Recv {} bytes to {}", _size, client_peer);
+                            // debug!("Recv {} bytes to {}", _size, client_peer);
                             match _tx.unbounded_send((client_peer, Vec::from(&buf[.._size]), MessageType::Data)) {
                                 Ok(_sz) => {
         
@@ -166,7 +166,7 @@ impl<'a> UDPProxy<'a> {
         let remote_to_client_proc = async move {
             loop{
                 if let Some((peer, buf, _msg_type)) = rx.next().await {
-                    debug!("Forward {} bytes to {}", buf.len(), peer);
+                    // debug!("Forward {} bytes to {}", buf.len(), peer);
                     match socket_send.send_to(&buf[..], &peer).await {
                         Ok(_sz) => {
 

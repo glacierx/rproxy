@@ -1,6 +1,6 @@
 [package]
 name = "rproxy"
-version = "0.1.6"
+version = "0.1.7"
 authors = ["Rong Xian <rong.xian@gmail.com>"]
 description = "Platform independent asynchronous UDP/TCP proxy"
 homepage = "https://github.com/glacierx/rproxy"

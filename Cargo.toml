@@ -1,6 +1,6 @@
 [package]
 name = "rproxy"
-version = "0.3.2"
+version = "0.3.3"
 authors = ["Rong Xian <rong.xian@gmail.com>"]
 description = "Platform independent asynchronous UDP/TCP proxy"
 homepage = "https://github.com/glacierx/rproxy"
@@ -43,7 +43,7 @@ socket2 = "0.6"
 tokio-util = "0.7"
 
 [target.'cfg(unix)'.dependencies]
-nix = { version = "0.30", features = ["signal", "process"] }
+nix = { version = "0.30", features = ["signal", "process", "user"] }
 ratatui = "0.30"
 crossterm = "0.29"
 

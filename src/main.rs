@@ -16,12 +16,68 @@ mod udp;
 mod dns;
 use rproxy::{Proxy, Settings};
 
-fn pid_file_path() -> PathBuf {
-    std::env::temp_dir().join("rproxy.pid")
+/// Return a per-user runtime directory for the PID / reload files, verified to
+/// be owned by the current user and inaccessible to other local users.
+///
+/// A shared world-writable temp dir (e.g. `/tmp`) must never be used on Unix:
+/// another local user could pre-position a PID file and induce us to signal an
+/// arbitrary process on `-s reload`. We prefer `$XDG_RUNTIME_DIR` and otherwise
+/// create a `rproxy-<uid>` subdirectory with mode 0700, refusing to use either
+/// unless it is owned by us and not group/other accessible.
+#[cfg(unix)]
+fn runtime_dir() -> std::io::Result<PathBuf> {
+    use std::io::{Error, ErrorKind};
+    use std::os::unix::fs::{DirBuilderExt, MetadataExt};
+
+    let euid = nix::unistd::geteuid().as_raw();
+
+    let verify = |p: &Path| -> std::io::Result<()> {
+        // lstat, so a symlink is rejected rather than followed.
+        let meta = std::fs::symlink_metadata(p)?;
+        if !meta.is_dir() {
+            return Err(Error::new(ErrorKind::Other,
+                format!("{} is not a directory", p.display())));
+        }
+        if meta.uid() != euid {
+            return Err(Error::new(ErrorKind::PermissionDenied,
+                format!("{} is not owned by uid {}", p.display(), euid)));
+        }
+        if meta.mode() & 0o077 != 0 {
+            return Err(Error::new(ErrorKind::PermissionDenied,
+                format!("{} is accessible to other users (mode {:o})",
+                    p.display(), meta.mode() & 0o7777)));
+        }
+        Ok(())
+    };
+
+    if let Some(dir) = std::env::var_os("XDG_RUNTIME_DIR") {
+        let p = PathBuf::from(dir);
+        if p.is_absolute() && verify(&p).is_ok() {
+            return Ok(p);
+        }
+    }
+
+    let dir = std::env::temp_dir().join(format!("rproxy-{}", euid));
+    match std::fs::DirBuilder::new().mode(0o700).create(&dir) {
+        Ok(()) => {}
+        Err(e) if e.kind() == ErrorKind::AlreadyExists => {}
+        Err(e) => return Err(e),
+    }
+    verify(&dir)?;
+    Ok(dir)
 }
 
-fn reload_signal_path() -> PathBuf {
-    std::env::temp_dir().join("rproxy.reload")
+#[cfg(not(unix))]
+fn runtime_dir() -> std::io::Result<PathBuf> {
+    Ok(std::env::temp_dir())
+}
+
+fn pid_file_path() -> std::io::Result<PathBuf> {
+    Ok(runtime_dir()?.join("rproxy.pid"))
+}
+
+fn reload_signal_path() -> std::io::Result<PathBuf> {
+    Ok(runtime_dir()?.join("rproxy.reload"))
 }
 
 #[allow(dead_code)]
@@ -97,9 +153,32 @@ fn build_settings(options: &Options, base: Settings) -> Settings {
 }
 
 fn write_pid_file() {
-    let path = pid_file_path();
+    let path = match pid_file_path() {
+        Ok(p) => p,
+        Err(e) => {
+            warn!("Refusing to write PID file: no secure runtime directory: {}", e);
+            return;
+        }
+    };
     let pid = std::process::id();
-    if let Err(e) = std::fs::write(&path, pid.to_string()) {
+
+    #[cfg(unix)]
+    let result = {
+        use std::io::Write;
+        use std::os::unix::fs::OpenOptionsExt;
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(&path)
+            .and_then(|mut f| f.write_all(pid.to_string().as_bytes()))
+    };
+
+    #[cfg(not(unix))]
+    let result = std::fs::write(&path, pid.to_string());
+
+    if let Err(e) = result {
         warn!("Failed to write PID file {}: {}", path.display(), e);
     } else {
         info!("PID {} written to {}", pid, path.display());
@@ -107,12 +186,52 @@ fn write_pid_file() {
 }
 
 fn remove_pid_file() {
-    let _ = std::fs::remove_file(pid_file_path());
-    let _ = std::fs::remove_file(reload_signal_path());
+    if let Ok(p) = pid_file_path() {
+        let _ = std::fs::remove_file(p);
+    }
+    if let Ok(p) = reload_signal_path() {
+        let _ = std::fs::remove_file(p);
+    }
 }
 
 fn send_reload_signal() {
-    let pid_path = pid_file_path();
+    let pid_path = match pid_file_path() {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("Cannot locate a secure runtime directory: {}", e);
+            std::process::exit(1);
+        }
+    };
+
+    // The PID file lives in a per-user 0700 directory, but verify the file
+    // itself is a regular file owned by us and not writable by other users
+    // before trusting its contents — defence in depth against being induced to
+    // signal an attacker-chosen process.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let euid = nix::unistd::geteuid().as_raw();
+        match std::fs::symlink_metadata(&pid_path) {
+            Ok(meta) => {
+                if !meta.is_file() {
+                    eprintln!("Refusing to use PID file {}: not a regular file", pid_path.display());
+                    std::process::exit(1);
+                }
+                if meta.uid() != euid {
+                    eprintln!("Refusing to use PID file {}: not owned by uid {}", pid_path.display(), euid);
+                    std::process::exit(1);
+                }
+                if meta.mode() & 0o022 != 0 {
+                    eprintln!("Refusing to use PID file {}: writable by other users", pid_path.display());
+                    std::process::exit(1);
+                }
+            }
+            Err(e) => {
+                eprintln!("Failed to stat PID file {}: {}. Is rproxy running?", pid_path.display(), e);
+                std::process::exit(1);
+            }
+        }
+    }
 
     // Verify rproxy is running by checking PID file
     match std::fs::read_to_string(&pid_path) {
@@ -122,6 +241,27 @@ fn send_reload_signal() {
                     // On Unix, send SIGHUP directly
                     #[cfg(unix)]
                     {
+                        // On Linux, confirm the target is actually an rproxy
+                        // process before signalling, so a stale or foreign PID
+                        // is never signalled.
+                        #[cfg(target_os = "linux")]
+                        {
+                            let comm_path = format!("/proc/{}/comm", pid);
+                            match std::fs::read_to_string(&comm_path) {
+                                Ok(comm) => {
+                                    if comm.trim() != "rproxy" {
+                                        eprintln!("Refusing to signal PID {}: not an rproxy process (comm={:?})",
+                                            pid, comm.trim());
+                                        std::process::exit(1);
+                                    }
+                                }
+                                Err(_) => {
+                                    eprintln!("rproxy (PID {}) does not appear to be running", pid);
+                                    std::process::exit(1);
+                                }
+                            }
+                        }
+
                         use nix::sys::signal::{kill, Signal};
                         use nix::unistd::Pid;
                         match kill(Pid::from_raw(pid as i32), Signal::SIGHUP) {
@@ -139,7 +279,13 @@ fn send_reload_signal() {
                     // On Windows (or fallback), write a signal file that the running process polls
                     #[cfg(not(unix))]
                     {
-                        let signal_path = reload_signal_path();
+                        let signal_path = match reload_signal_path() {
+                            Ok(p) => p,
+                            Err(e) => {
+                                eprintln!("Cannot locate runtime directory: {}", e);
+                                std::process::exit(1);
+                            }
+                        };
                         match std::fs::write(&signal_path, "reload") {
                             Ok(()) => {
                                 println!("Reload signal written for rproxy (PID {})", pid);
@@ -265,7 +411,8 @@ async fn wait_for_reload_signal() {
 
     #[cfg(not(unix))]
     {
-        let signal_path = reload_signal_path();
+        let signal_path = reload_signal_path()
+            .unwrap_or_else(|_| std::env::temp_dir().join("rproxy.reload"));
         loop {
             tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
             if signal_path.exists() {

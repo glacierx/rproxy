@@ -224,7 +224,7 @@ Existing TCP connections through unchanged proxies are **never dropped**. UDP tu
 
 ### Under the Hood
 
-When started with `-c`, rproxy writes its PID to `/tmp/rproxy.pid`. Running `rproxy -s reload` reads the PID file and sends `SIGHUP` to the process, which triggers the config diff and reload cycle.
+When started with `-c`, rproxy writes its PID to a private per-user runtime directory (`$XDG_RUNTIME_DIR`, or a `rproxy-<uid>` directory created with mode `0700` under the system temp dir). Running `rproxy -s reload` reads that PID file and sends `SIGHUP` to the process, which triggers the config diff and reload cycle. The PID file is created owner-only (`0600`), its ownership and permissions are verified before it is trusted, and on Linux the target is confirmed to be an rproxy process before signalling — so another local user cannot induce a reload into signalling an arbitrary process.
 
 ## Configuration Format
 
